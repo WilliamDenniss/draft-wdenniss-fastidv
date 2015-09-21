@@ -1,0 +1,429 @@
+<?xml version="1.0" encoding="US-ASCII"?>
+<!DOCTYPE rfc SYSTEM "rfc2629.dtd">
+<?rfc toc="yes"?>
+<?rfc tocompact="yes"?>
+<?rfc tocdepth="2"?>
+<?rfc tocindent="yes"?>
+<?rfc symrefs="yes"?>
+<?rfc sortrefs="no"?>
+<?rfc comments="yes"?>
+<?rfc inline="yes"?>
+<?rfc compact="yes"?>
+<?rfc subcompact="no"?>
+<rfc category="std" docName="draft-wdenniss-oidc-fastidv-00" ipr="trust200902"><!-- info -->
+  <front>
+    <title abbrev="oauth_mobile">OpenID Connect Fast Identity Verification</title>
+
+    <author fullname="William Denniss" initials="W."
+            surname="Denniss">
+      <organization>Google</organization>
+
+      <address>
+        <postal>
+          <street>1600 Amphitheatre Pkwy</street>
+          <city>Mountain View</city>
+          <region>CA</region>
+          <code>94043</code>
+          <country>USA</country>
+        </postal>
+        <phone>+1 650-253-0000</phone>
+        <facsimile/>
+        <email>wdenniss@google.com</email>
+        <uri>http://google.com/</uri>
+      </address>
+    </author>
+
+
+    <date day="20" month="September" year="2015"/>
+
+    <area>Security</area>
+
+    <workgroup>OAuth Working Group</workgroup>
+
+    <abstract>
+      <t>
+        Fast Identity Verification is a technique that OpenID Connect
+        providers can implement to enable relying parties to verify
+        identity information they already know about a user, in a way that is
+        completely transparent to the user (provided they have an active 
+        authentication session).
+      </t>
+    </abstract>
+
+  </front>
+
+  <middle>
+    <section title="Introduction" anchor="intro">
+      <t>
+        The OpenID Connect specification, as an identity layer on OAuth 2.0,
+        allows relying parties to get identity assertions from
+        identity providers.  Typically the user is prompted to grant access
+        to their identity as part of the authentication flow.
+      </t>
+      <t>
+        In some cases, the relying party (RP) may already have identity 
+        information about the user, such as their email address or phone number which may have
+        been supplied in an identifier first sign-in flow, from an account chooser (such as
+        AccountChooser.com),
+        or in a registration form.  In these cases, it may be possible to not prompt
+        the user to consent to share identity information, as the relying party
+        already has that information.
+      </t>
+      <t>
+        If user consent is not required in certain specific circumstances, OpenID Connect flows can be used seamlessly
+        to verify the identity of the supplied user by using their signed-in state at the
+        identity provider. This technique is referred to as FastIDV, and is the subject of this specification.
+      </t>
+      <t>
+        By using the FastIDV pattern, OPs can enable email first flows with a highly efficient
+        user experience for federated sign-in. It also offers an alternative UX to traditional "verify your email address" emails
+        and "verify your phone number" SMS messages. 
+
+        Another potential advantage over those traditional verification flows is that if the provider supports account signals as being developed by the OIDF RISK workgroup, then this FastIDV flow can be used to enable the provider to remember that the site requesting the verification should be notified of any account signals in the future.
+      </t>
+    </section>
+
+
+    <section title="Notational Conventions" anchor="NotationalConventions">
+        <t>
+          The key words "MUST", "MUST NOT", "REQUIRED", "SHALL",
+          "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY",
+          and "OPTIONAL" in this document are to be interpreted as
+          described in
+	  Key words for use in RFCs to Indicate Requirement Levels <xref target='RFC2119' />.
+	  If these words are used without being spelled in uppercase then
+	  they are to be interpreted with their normal natural language meanings.
+        </t>
+
+    </section>
+
+    <section title="Terminology" anchor="terminology">
+      <t>In addition to the terms defined in referenced specifications, this document
+      uses the following terms:</t>
+       
+    <t>
+      <list style="hanging">
+        <t hangText='"OpenID Provider (OP)"'>
+          OAuth 2.0 Authorization Server that is capable of Authenticating the End-User and providing Claims to a Relying Party about the Authentication event and the End-User.
+        </t>
+        <t hangText='"Relying Party (RP)"'>
+          OAuth 2.0 Client application requiring End-User Authentication and Claims from an OpenID Provider.
+        </t>
+        <t hangText='"FastIDV"'>
+          Fast Identity Verification, an optimisation to OpenID Connect that is the subject of this specification.
+        </t>
+        <t hangText='"FastIDV Request"'>
+          An OpenID Connect request that qualifies for FastIDV processing, as per <xref target="fast_idv_processing"/>
+        </t>
+      </list>
+    </t>
+
+    </section>
+    
+    <section title="The FastIDV Optimisation" anchor="fast_idv_flow">
+        <t>
+          FastIDV enhances the Authorization Code, Implicit and Hybrid flows of OpenID Connect with additional logic that if met means that the user consent
+          step can be bypassed.
+        </t>
+      <section title="Qualifying FastIDV Requests" anchor="fast_idv_request">
+        <t>
+          FastIDV requests represent a subset of valid OpenID Connect requests. Any invalid OpenID Connect request is by definition also invalid for FastIDV.
+          In addition to being a normal, valid, OpenID Connect request, FastIDV requests must meet the following requirements:
+        </t>
+        <t>
+          <list style="numbers">
+            <t>
+              <spanx style="verb">login_hint</spanx> MUST be supplied.
+            </t>
+            <t>
+              The <spanx style="verb">prompt</spanx> parameter MUST NOT be present.
+            </t>
+            <t>
+              <spanx style="verb">response_type</spanx> MUST be 'code', 'id_token', or both. 
+            </t>
+            <t>
+              The scope 'openid' MUST be present.
+            </t>
+            <t>
+              One of the scopes 'email' and 'phone' MAY be present.
+            </t>
+            <t>
+              Scopes other than those listed above MAY also be present although 
+              it is NOT RECOMMENDED for clients to supply them. Any such scopes are referred to as 
+              'Additional Scopes' for the purposes of FastIDV.
+            </t>
+            <t>
+              If the 'email' or 'phone' scope is present, the login_hint supplied
+              MUST match that scope's format, i.e. the login_hint 
+              should be an email address when 'email' is supplied, and a phone number 
+              when 'phone' is supplied. Where the login_hint format does not match 
+              these scopes, they are treated as Additional Scopes.
+            </t>
+          </list>
+        </t>
+        <t>
+          OpenID Connect requests meeting the above requirements qualify as "FastIDV Requests
+          and can be processed per <xref target="fast_idv_processing"/>.
+        </t>
+        <t>
+          Requests that are not FastIDV Requests MUST be processed following
+          the OpenID Connect standard. The OP MUST NOT respond with a FastIDV
+          specific error message if an OpenID Connect request does not qualify as a FastIDV Request.
+        </t>
+      </section>
+
+      <section title="Processing FastIDV Requests" anchor="fast_idv_processing">
+        <section title="Validating the FastIDV Request for the signed-in user" anchor="fast_idv_validating">
+
+        <t>
+          On receipt of a FastIDV Request, the OP performs the following
+          additional checks to see if the request is valid for the 
+          current signed-in user state.
+        </t>
+        <t>
+          <list style="numbers">
+            <t>
+              <spanx style="verb">login_hint</spanx> MUST match a valid, logged in user.
+            </t>
+            <t>
+              If a <spanx style="verb">login_hint</spanx> of type other than the subject identifier is used, the OP MAY disqualify an otherwise valid FastIDV request if 
+              hint-to-sub lookups are disallowed by policy (see <xref target="login_hint"/> for a non-normative discussion of the privacy implications of the 
+              hint-to-sub lookup). The policy choices of an OP regarding hint-to-sub lookups is outside the scope of this specification.
+            </t>
+            <t>
+              If the request contains Additional Scopes, as defined by <xref target="fast_idv_request"/>, the OP SHOULD disqualify an otherwise valid FastIDV request if proper
+              user consent has not been previously obtained for those scopes, as per the policy of the OP.
+              The exact policy for handling of Additional Scopes within FastIDV
+              Requests is outside the scope of this specification.
+            </t>
+          </list>
+        </t>
+      </section>
+        <section title="Processing Valid FastIDV Requests" anchor="fast_idv_valid">
+
+        <t>
+          If the FastIDV Request isn't invalidated by the above checks, then 
+          the OP SHOULD process the request according to the OpenID Connect specification
+          but without an interactive dialog (as defined in 3.1.2.4., and referenced in sections 3.2.2.4. and 3.3.2.4.) that interrupts the flow.
+        </t>
+        <t>
+          FastIDV supporting OPs MAY prompt the user even on a valid FastIDV request,
+          if they determine it is needed for any reason. It is expected however, 
+          by declaring support for this standard, that OPs do not present an 
+          interactive dialog in normal circumstances for valid FastIDV requests.
+        </t>
+        </section>
+
+        <section title="Processing Invalid FastIDV Requests" anchor="fast_idv_invalid">
+
+          <t>
+            If the FastIDV request was invalidated, it MUST be processed according to the OpenID Connect standard as usual. The OP MUST NOT respond with a FastIDV specific error message if an OpenID Connect request was disqualified as a FastIDV Request.
+          </t>
+
+          <t>
+            It is a common case for users to be signed-out of the OP, thus it is
+            expected for honest clients attempting to use FastIDV to hint
+            identifiers for users that are not signed-in.
+            When the user specified by 'login_hint' is not signed-in, the OP SHOULD
+            redirect to a sign-in page, reverting to normal OpenID Connect protocol behavior.
+            It is RECOMMENDED that the 'login_hint' is used to optimise
+            the sign-in experience (for example, by pre-filling the email address field).
+          </t>
+        </section>
+      </section>
+
+    </section>
+
+    <section title="OpenID Provider Discovery" anchor="openid-provider-discovery">
+
+      <t>
+        If the OP supports OpenID Connect Discovery, it uses this metadata value to advertise its support for Fast Identity Verification:
+      </t>
+
+      <t>
+        <list style="hanging">
+          <t hangText='"fastidv_supported"'>
+            OPTIONAL. Boolean value specifying whether the OP supports Fast Identity Verification, with true indicating support (and compliance with this specification). If omitted, the default value is false.
+          </t>
+          <t hangText='"fastidv_scopes"'>
+            OPTIONAL. String value specifying the list of scopes the OP supports
+            for FastIDV, any combination of 'openid', 'email' and 'phone'. Multiple scope values are separated by spaces.
+            The OP MUST support login_hint formats that match scopes declared here.
+            For example "openid email" implies that login_hints in the form of either
+            the OpenID Connect subject identifier ('sub'), or email will be accepted.
+          </t>
+        </list>
+      </t>
+
+    </section>
+
+   <section title="Privacy Considerations" anchor="login_hint">
+        <t>
+          The following is a non-normative discussion
+          of the privacy considerations with by-passing user consent for
+          OpenID Connect requests that qualify for FastIDV handling.
+        </t>
+      <section title="Confirming the Login State of the User" anchor="login_hint_confirm">
+        <t>
+          Successful FastIDV requests result in the login state of the user being revealed.
+          FastIDV does not explicitly confirm the negative (that the user was not logged in), though it can be roughly inferred by the lack of a response.
+        </t>
+        <t>
+          Typically the user supplied their account identifier to the RP with the intent to 
+          sign-in or verify their identity at the RP, which is what prompted the RP to initiate the
+          FastIDV flow.  Thus, the RP confirming the signed-in state of the user using the identifier
+          they supplied is reasonable behavior.
+        </t>
+        <t>
+          OPs that do not wish to reveal the sign-in state of a user based on a hint
+          supplied by the RP SHOULD NOT implement this spec. In that case, the OP should 
+          evaluate what visual experience their users will encounter if an RP uses an 
+          account chooser like AccountChooser.com. Users may be confused if they feel 
+          they used an account chooser to consent to sharing their identifier with a site, 
+          but are then "asked again" to consent on another page.
+        </t>
+      </section>
+      <section title="Asserting Hinted Values" anchor="login_hint_assertion">
+        <t>
+          ID Tokens contain user information beyond the simple fact that the user is logged in, such as
+          their 'sub' and in some cases 'email' and 'phone' identifiers.
+          Typically this information is not revealed via OpenID Connect without user consent.
+          In the case of FastIDV however, the RP has given the identifiers to the OP in the
+          form of the login_hint, and thus when the ID Token contains this information, it is
+          not new information for the RP.
+        </t>
+        <t>
+          As the RP already has access to the information they hinted, 
+          the OP does not need additional consent to return that same information 
+          as claims in an ID Token.
+        </t>
+
+      </section>
+      <section title="Hint-to-sub Mapping" anchor="login_hint_mapping">
+        <t>
+          When FastIDV is used with the 'email' or 'phone' login_hint types,
+          the 'sub' is still included in the ID Token despite that fact that this identifier
+          was not hinted by the RP.
+        </t>
+        <t>
+          For some OPs, hint-to-sub mapping with FastIDV is not a concern, as hint-to-sub lookups are already supported in an unauthenticated fashion. For example, an email provider may already support the looking up of a user's profile page when an email is supplied, to enrich the email composition experience.  
+        </t>
+        <t>
+          OPs that return a client-specific subject identifier (also known as a directed identifier) would normally be unconcerned with providing hint-to-sub mapping,
+          as the identifier is only useful the context of that client.
+        </t>
+        <t>
+          The exact policy of revealing the 'sub' to RPs who know other user identifiers varies from OP to OP, and is outside the scope of this specification.
+          OPs who do not support hint-to-sub lookups for particular login_hint types, may
+          chose to disqualify FastIDV requests for the unsupported login_hint types as per <xref target="fast_idv_processing"/>, and process them as
+           normal OpenID Connect requests instead.
+        </t>
+        <t>
+          OPs that support OpenID Connect Discovery SHOULD declare the scopes that match the login_hint types they support
+          in their OpenID Connect discovery document as per <xref target="openid-provider-discovery"/>.
+        </t>
+      </section>
+
+    </section>
+
+    <section title="Security Considerations" anchor="security-considerations">
+
+      <section title="Programmatic Detection of Signed-in Users" anchor="prog_detection">
+        <t>
+          A risk of FastIDV is that a relying party could potentially
+          query the OP with a large list of email addresses, in order to scan for a
+          currently signed-in user.  This can be mitigated in a number of ways.
+        </t>
+        <section title="Disqualifying requests with the 'prompt' parameter" anchor="security_no_errors">
+          <t>
+            To prevent a malicious RP trying multiple FastIDV requests in serial, requests with
+            a <spanx style="verb">prompt</spanx> parameter must be disqualified
+            from FastIDV processing (and instead processed as regular OpenID Connect
+            requests), as specified in <xref target="fast_idv_request"/>.
+          </t>
+          <t>
+            As such, an OP MUST NOT return an error for a FastIDV qualified request.
+            It will either return a success response, or redirect the user to a prompt.
+            This doesn't prevent normal use of <spanx style="verb">prompt</spanx>, 
+            it just means that FastIDV
+            processing should not apply to those requests.
+          </t>
+        </section>
+
+        <section title="Preventing use in iframes" anchor="security_iframe">
+          <t>
+            To prevent a malicious RP using hidden iframes to execute
+            multiple requests looking for a success response, the Authorization Endpoint
+            MUST set a X-Frame-Options header (as defined by <xref target="RFC7034"/>) on every HTTP request to prevent the RP embedding the request. For example, "X-Frame-Options: DENY".
+          </t>
+        </section>
+
+        <section title="Rate Limiting" anchor="security_rate_limiting">
+          <t>
+            As a failsafe incase other countermeasures fail, abuse protection that rate-limits the number of failed FastIDV requests from a given client is RECOMMENDED.
+          </t>
+        </section>
+
+      </section>
+
+
+
+      <section title="Cross-site forgery" anchor="security_state">
+        <t>
+          To protect against an unrelated party sending users through a FastIDV
+          flow, the 'state' MUST be used as recommended in 
+          Section 10.12 of <xref target="RFC6749"/>. 
+        </t>
+      </section>
+
+    </section>
+
+  </middle>
+
+  <back>
+
+
+    <references title="Normative References">
+
+      <?rfc include='reference.RFC.6749'?>
+
+      <reference anchor="OIDC.Core" target="http://openid.net/specs/openid-connect-core-1_0.html">
+        <front>
+          <title>OpenID Connect Core 1.0 incorporating errata set 1</title>
+          <author fullname="Nat Sakimura" initials="N." role="editor"
+                  surname="Sakimura">
+          </author>
+
+          <author fullname="John Bradley" initials="J." surname="Bradley">
+          </author>
+
+          <author fullname="Mike Jones " initials="M." surname="Jones">
+          </author>
+
+          <author fullname="Breno. de Medeiros" initials="B." surname="de Medeiros" />
+          <author fullname="C. Mortimore" initials="C." surname="Mortimore" />
+          <date month="February" year="2015" />
+        </front>
+      </reference>
+
+      <?rfc include='reference.RFC.7034'?>
+      <?rfc include='reference.RFC.2119'?>
+ 
+    </references>
+
+    <references title="Informative References">
+
+      <?rfc include='reference.RFC.6819'?>
+    </references>
+    
+
+    <section title="Acknowledgements" anchor="Acknowledgements">
+      <t>
+        The author would like to acknowledge the contributions of the following
+        individuals: Adam Dawes, Breno de Medeiros, Eric Sachs, Mengcheng Duan, 
+        Michael Dietz, Naveen Agarwal.
+      </t>
+    </section>
+
+  </back>
+</rfc>
