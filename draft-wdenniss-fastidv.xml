@@ -10,7 +10,7 @@
 <?rfc inline="yes"?>
 <?rfc compact="yes"?>
 <?rfc subcompact="no"?>
-<rfc category="std" docName="draft-wdenniss-oidc-fastidv-00" ipr="trust200902"><!-- info -->
+<rfc category="std" docName="draft-wdenniss-oidc-fastidv-01" ipr="trust200902"><!-- info -->
   <front>
     <title abbrev="oauth_mobile">OpenID Connect Fast Identity Verification</title>
 
@@ -34,7 +34,7 @@
     </author>
 
 
-    <date day="20" month="September" year="2015"/>
+    <date day="6" month="May" year="2016"/>
 
     <area>Security</area>
 
@@ -136,9 +136,6 @@
               <spanx style="verb">login_hint</spanx> MUST be supplied.
             </t>
             <t>
-              The <spanx style="verb">prompt</spanx> parameter MUST NOT be present.
-            </t>
-            <t>
               <spanx style="verb">response_type</spanx> MUST be 'code', 'id_token', or both. 
             </t>
             <t>
@@ -158,6 +155,13 @@
               should be an email address when 'email' is supplied, and a phone number 
               when 'phone' is supplied. Where the login_hint format does not match 
               these scopes, they are treated as Additional Scopes.
+            </t>
+            <t>
+              Requests with the <spanx style="verb">prompt</spanx> parameter
+              MAY be also excluded from FastIDV handling at the OPs choice, per
+              <xref target="security_no_errors"/>. It is RECOMMENDED that the OPs
+              choice in this regard is discoverable, per 
+              <xref target="openid-provider-discovery"/>.
             </t>
           </list>
         </t>
@@ -245,6 +249,9 @@
           <t hangText='"fastidv_supported"'>
             OPTIONAL. Boolean value specifying whether the OP supports Fast Identity Verification, with true indicating support (and compliance with this specification). If omitted, the default value is false.
           </t>
+          <t hangText='"fastidv_prompt_supported"'>
+            OPTIONAL. Boolean value specifying whether the OP supports Fast Identity Verification requests that include the <spanx style="verb">prompt</spanx> param.
+          </t>
           <t hangText='"fastidv_scopes"'>
             OPTIONAL. String value specifying the list of scopes the OP supports
             for FastIDV, any combination of 'openid', 'email' and 'phone'. Multiple scope values are separated by spaces.
@@ -254,6 +261,34 @@
           </t>
         </list>
       </t>
+
+    </section>
+
+    <section title="Authoritative ID Token Claims" anchor="jwt-authoritative">
+      <t>
+        One of the reasons for FastIDV is to avoid a manual identity verification.
+        In order to skip manual identity verification but achieve the same end
+        result (an assurance that the identity does currently belong to the user),
+        the OP must be authoritative for the identity information
+        being asserted. Merely having validated that information in the past
+        may not always be good enough, see <xref target="star_verified"/>.
+        The claims below provide a way to communicate the authoritative status
+        of the identity information, within the trust framework established by
+        the OP and RP.
+      </t>
+
+      <t>
+        <list style="hanging" hangIndent="6">
+             <t hangText="email_authority:">True if the OP authoritatively represents the End-User's email address; otherwise false. When this Claim Value is true, the OP asserts that the End-User is in control of the e-mail account, and thus would
+             be the same person who would receive an email to the account if it was sent at that
+             moment. For example, OPs that manage the mailbox of the e-mail address are considered authoritative, as are OPs contracted by the owner of the mailbox to provide identity services. The exact logic to determine whether the OP is authoritative is dependent upon the trust framework or contractual agreements within which the parties are operating.</t>
+
+            <t hangText="phone_number_authority:">True if the OP authoritatively represents the End-User's phone number; otherwise false. When this Claim Value is true, the OP asserts that the End-User is in control of the phone number, and thus would
+             be the same person who would receive an sms or call to the number if it was
+             made at that moment.
+             For example, OPs that manage the line service of the phone number are considered authoritative, as are OPs contracted by the owner of the phone line to provide identity services. The exact logic to determine whether the OP is authoritative is dependent upon the trust framework or contractual agreements within which the parties are operating.</t>
+        </list>
+    </t>
 
     </section>
 
@@ -334,19 +369,24 @@
           query the OP with a large list of email addresses, in order to scan for a
           currently signed-in user.  This can be mitigated in a number of ways.
         </t>
-        <section title="Disqualifying requests with the 'prompt' parameter" anchor="security_no_errors">
+
+        <section title="Rate Limiting" anchor="security_rate_limiting">
           <t>
-            To prevent a malicious RP trying multiple FastIDV requests in serial, requests with
-            a <spanx style="verb">prompt</spanx> parameter must be disqualified
-            from FastIDV processing (and instead processed as regular OpenID Connect
-            requests), as specified in <xref target="fast_idv_request"/>.
+            Rate limiting of FastIDV requests is RECOMMENDED to mitigate the risk of
+            a rogue RP attempting to programmatically detect users.
           </t>
+        </section>
+
+        <section title="Handling of 'prompt=none'" anchor="security_no_errors">
           <t>
-            As such, an OP MUST NOT return an error for a FastIDV qualified request.
-            It will either return a success response, or redirect the user to a prompt.
+            For OPs that don't rate limit FastIDV requests, an alternative 
+            simpler mitigation is to disqualify all requests with a 
+            <spanx style="verb">prompt</spanx> parameter during
+            the FastIDV evaluation (<xref target="fast_idv_request"/>).
+            For such OPs, they would never return an error for a FastIDV qualified request
+            they would either return a success response, or redirect the user to a prompt.
             This doesn't prevent normal use of <spanx style="verb">prompt</spanx>, 
-            it just means that FastIDV
-            processing should not apply to those requests.
+            with such OPs, it just means that FastIDV processing should not apply to those requests.
           </t>
         </section>
 
@@ -355,12 +395,6 @@
             To prevent a malicious RP using hidden iframes to execute
             multiple requests looking for a success response, the Authorization Endpoint
             MUST set a X-Frame-Options header (as defined by <xref target="RFC7034"/>) on every HTTP request to prevent the RP embedding the request. For example, "X-Frame-Options: DENY".
-          </t>
-        </section>
-
-        <section title="Rate Limiting" anchor="security_rate_limiting">
-          <t>
-            As a failsafe incase other countermeasures fail, abuse protection that rate-limits the number of failed FastIDV requests from a given client is RECOMMENDED.
           </t>
         </section>
 
@@ -376,6 +410,30 @@
         </t>
       </section>
 
+      <section title="OP Asserted Claims" anchor="op_assertions">
+        <t>
+          Any value for the <spanx style="verb">email</spanx> and 
+          <spanx style="verb">phone_number</spanx> claims may be asserted by
+          any OP.  RPs must establish trust with the OPs in order to accept
+          any identity claims beyond <spanx style="sub">sub</spanx>.
+          The trust framework by which the parties to the FastIDV transaction
+          operate is out of scope for this specification.
+        </t>
+      </section>
+      <section title="Accepting email_verified and phone_number_verified claims" anchor="star_verified">
+        <t>
+          Depending on the context that FastIDV is being used 
+          the <spanx style="verb">email_verified</spanx> and 
+          <spanx style="verb">email_number_verified</spanx> may not be a strong
+          enough claim to actually skip a fresh manual verification of the identity
+          information, as these claims require only that the OP have verified the 
+          information once in the past.
+          Instead, the new claims, defined in this spec 
+          <spanx style="verb">email_authority</spanx> and 
+          <spanx style="verb">email_number_authority</spanx> can be used from
+          trusted OPs to avoid the need for a fresh verification.
+        </t>
+      </section>
     </section>
 
   </middle>
@@ -421,7 +479,8 @@
       <t>
         The author would like to acknowledge the contributions of the following
         individuals: Adam Dawes, Breno de Medeiros, Eric Sachs, Mengcheng Duan, 
-        Michael Dietz, Naveen Agarwal.
+        Michael Dietz, Naveen Agarwal, Steven Soneff, John Bradley, 
+        Nat Sakimura, Mike Jones.
       </t>
     </section>
 
